@@ -35,7 +35,7 @@ export function NghimmoProviderSection({ titleHidden }: { titleHidden?: boolean 
 			setConfigured(settings.nghimmoApiKeyConfigured === true);
 			setApiKey("");
 			const daemon = await aoBridge.daemon.restart();
-			if (daemon.state === "failed") throw new Error(daemon.message || "Daemon restart failed.");
+			if (daemon.state === "error") throw new Error(daemon.message || "Daemon restart failed.");
 			setMessage("Saved. AO restarted the daemon with the new key. Create a new Codex task to use it.");
 		} catch (cause) {
 			setError(cause instanceof Error ? cause.message : "Could not save the Nghimmo API key.");
@@ -53,7 +53,7 @@ export function NghimmoProviderSection({ titleHidden }: { titleHidden?: boolean 
 			setConfigured(settings.nghimmoApiKeyConfigured === true);
 			setApiKey("");
 			const daemon = await aoBridge.daemon.restart();
-			if (daemon.state === "failed") throw new Error(daemon.message || "Daemon restart failed.");
+			if (daemon.state === "error") throw new Error(daemon.message || "Daemon restart failed.");
 			setMessage("Saved Nghimmo key removed. AO restarted the daemon.");
 		} catch (cause) {
 			setError(cause instanceof Error ? cause.message : "Could not remove the Nghimmo API key.");
@@ -66,7 +66,7 @@ export function NghimmoProviderSection({ titleHidden }: { titleHidden?: boolean 
 		<SettingsSection title="Nghimmo API" sectionId="nghimmo-api" titleHidden={titleHidden}>
 			<div className="rounded-md bg-[var(--color-bg-settings-row)]">
 				<SettingsRow icon={KeyRound} label="Custom Codex provider">
-					<span className={`text-xs ${configured ? "text-success" : "text-muted-foreground"}`}>
+					<span className={configured ? "text-xs text-foreground" : "text-xs text-muted-foreground"}>
 						{configured ? "Key saved locally" : "No saved key"}
 					</span>
 				</SettingsRow>
