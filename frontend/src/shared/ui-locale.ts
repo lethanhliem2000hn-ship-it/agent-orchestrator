@@ -20,6 +20,12 @@ export interface UiSettings {
 	soundNotificationsEnabled: boolean;
 	/** Windows shell used for new standalone terminal panes. */
 	terminalShell: TerminalShellPreference;
+	/** True when AO has a locally persisted Nghimmo credential. Never contains the secret itself. */
+	nghimmoApiKeyConfigured?: boolean;
+	/** Write-only IPC field. The main process persists this secret and never returns it to the renderer. */
+	nghimmoApiKey?: string;
+	/** Write-only IPC field used to remove the locally persisted Nghimmo credential. */
+	clearNghimmoApiKey?: boolean;
 }
 
 export const DEFAULT_TERMINAL_SHELL: TerminalShellPreference = { kind: "auto" };

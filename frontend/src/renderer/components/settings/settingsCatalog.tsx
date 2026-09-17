@@ -12,6 +12,7 @@ import { GeneralSettingsSection } from "./GeneralSettingsSection";
 import { HarnessSettingsSection } from "./HarnessSettingsSection";
 import { KeyboardShortcutsContent } from "./KeyboardShortcutsContent";
 import { MobileDevicesSection } from "./MobileDevicesSection";
+import { NghimmoProviderSection } from "./NghimmoProviderSection";
 import { ReportProblemContent } from "./ReportProblemContent";
 import { SettingsSection } from "./SettingsSection";
 
@@ -53,7 +54,14 @@ const globalSettingsCatalog: SettingsCatalogItem[] = [
 		id: "agents",
 		icon: BadgeCheck,
 		label: (t) => t("settings.agents"),
-		render: (_t, titleHidden) => <CodexAccountsSection titleHidden={titleHidden} />,
+		render: (_t, titleHidden) => (
+			<>
+				<CodexAccountsSection titleHidden={titleHidden} />
+				<div className="border-t border-border/60 pt-5">
+					<NghimmoProviderSection />
+				</div>
+			</>
+		),
 	},
 	{
 		id: "browserProfiles",
