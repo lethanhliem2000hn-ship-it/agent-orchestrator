@@ -28,8 +28,9 @@ async function readUiPreferences(stateDir: string): Promise<UiSettings> {
 async function readUiSettingsUnlocked(stateDir: string): Promise<UiSettings> {
 	const settings = await readUiPreferences(stateDir);
 	const nghimmoApiKey = await readNghimmoApiKey(stateDir);
-	if (nghimmoApiKey) process.env.OPENAI_API_KEY = nghimmoApiKey;
-	return { ...settings, nghimmoApiKeyConfigured: Boolean(nghimmoApiKey) };
+	if (!nghimmoApiKey) return settings;
+	process.env.OPENAI_API_KEY = nghimmoApiKey;
+	return { ...settings, nghimmoApiKeyConfigured: true };
 }
 
 async function writeUiSettingsUnlocked(stateDir: string, patch: Partial<UiSettings>): Promise<UiSettings> {
@@ -55,11 +56,10 @@ async function writeUiSettingsUnlocked(stateDir: string, patch: Partial<UiSettin
 	const tmp = path.join(stateDir, `.ui-settings-${process.pid}-${Date.now()}.json`);
 	await writeFile(tmp, data, { mode: 0o600 });
 	await rename(tmp, file);
-	const configured = Boolean(await readNghimmoApiKey(stateDir));
-	return { ...next, nghimmoApiKeyConfigured: configured };
+	return (await readNghimmoApiKey(stateDir)) ? { ...next, nghimmoApiKeyConfigured: true } : next;
 }
 
-function runSettingsOperation<T>(operation: () => Promise<T>): Promise<T> {
+function runSettingsOperation<T>(operation: () => Promise<T>) {
 	const queued = settingsOperationQueue.then(operation, operation);
 	settingsOperationQueue = queued.then(
 		() => undefined,
