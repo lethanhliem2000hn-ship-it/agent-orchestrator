@@ -1365,7 +1365,7 @@ function ActivityTimeline({ prs, session }: { prs: SessionPRSummary[]; session: 
 		{
 			tone: "now",
 			content: (
-				<span className="inline-flex flex-wrap items-center gap-1.5">
+				<span className="inline-flex min-w-0 flex-wrap items-center gap-1.5">
 					<span className="inline-flex align-middle">
 						<InspectorActivityPill activity={session.activity} />
 					</span>
@@ -1379,6 +1379,14 @@ function ActivityTimeline({ prs, session }: { prs: SessionPRSummary[]; session: 
 							<InspectorScmPill state={state} />
 						</span>
 					))}
+					{session.latestAssistantUpdate ? (
+						<span
+							className="max-w-full truncate text-2xs text-muted-foreground"
+							title={session.latestAssistantUpdate}
+						>
+							{session.latestAssistantUpdate}
+						</span>
+					) : null}
 				</span>
 			),
 			timestamp: activityAt ? formatTimeCompact(activityAt) : null,
