@@ -2935,7 +2935,10 @@ export interface components {
             kanbanColumn: "building" | "validating" | "needs_review" | "ready" | "archive";
             kind: string;
             /** Format: date-time */
+            lastAssistantUpdateAt?: null | string;
+            /** Format: date-time */
             lastUserMessageAt?: null | string;
+            latestAssistantUpdate?: string;
             /** @enum {string} */
             mode: "chat" | "tui";
             model?: string;
