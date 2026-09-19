@@ -136,6 +136,71 @@ func TestTransportDistinguishesEmptyResponses(t *testing.T) {
 	})
 }
 
+func TestGetJSONRetriesOneTransientDaemonFailure(t *testing.T) {
+	cfg := setConfigEnv(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"session":{"id":"demo-1","status":"idle"}}`)
+	}))
+	t.Cleanup(srv.Close)
+	writeRunFileFor(t, cfg, srv)
+
+	attempts := 0
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		attempts++
+		if attempts == 1 {
+			return nil, io.ErrUnexpectedEOF
+		}
+		return http.DefaultTransport.RoundTrip(req)
+	})
+	client := &http.Client{Transport: transport}
+	cmd := &commandContext{deps: Deps{
+		HTTPClient:   client,
+		ProcessAlive: func(int) bool { return true },
+	}}
+	var out sessionResponse
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := cmd.getJSON(ctx, "sessions/demo-1", &out); err != nil {
+		t.Fatalf("getJSON after transient failure: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("attempts = %d, want 2", attempts)
+	}
+	if out.Session.ID != "demo-1" {
+		t.Fatalf("session id = %q, want demo-1", out.Session.ID)
+	}
+}
+
+func TestMutatingJSONDoesNotRetryTransientDaemonFailure(t *testing.T) {
+	cfg := setConfigEnv(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	}))
+	t.Cleanup(srv.Close)
+	writeRunFileFor(t, cfg, srv)
+
+	attempts := 0
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		attempts++
+		return nil, io.ErrUnexpectedEOF
+	})}
+	cmd := &commandContext{deps: Deps{
+		HTTPClient:   client,
+		ProcessAlive: func(int) bool { return true },
+	}}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := cmd.postJSON(ctx, "sessions/demo-1/send", map[string]string{"message": "hello"}, nil)
+	if err == nil {
+		t.Fatal("expected mutating call to fail")
+	}
+	if attempts != 1 {
+		t.Fatalf("mutating attempts = %d, want exactly 1", attempts)
+	}
+}
+
 // TestSpawnRejectsEmptySessionID ensures a daemon that answers spawn with an
 // empty (but valid) body can never print a success line.
 func TestSpawnRejectsEmptySessionID(t *testing.T) {
