@@ -1465,6 +1465,59 @@ func TestSpawn_InheritsChatOrchestratorPermissions(t *testing.T) {
 	}
 }
 
+func TestSpawn_InheritsTUIOrchestratorPermissions(t *testing.T) {
+	m, st, rt, _ := newManager()
+	st.sessions["mer-0"] = domain.SessionRecord{
+		ID: "mer-0", ProjectID: "mer", Kind: domain.KindOrchestrator, Mode: domain.SessionModeTUI,
+		Metadata: domain.SessionMetadata{Permissions: domain.PermissionModeBypassPermissions},
+	}
+
+	_, _, _, err := m.Spawn(ctx, ports.SpawnConfig{
+		ProjectID: "mer", Kind: domain.KindWorker, ParentSessionID: "mer-0",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rt.lastCfg.Env[EnvPermissionMode]; got != string(domain.PermissionModeBypassPermissions) {
+		t.Fatalf("worker permission environment = %q, want inherited TUI orchestrator permission %q", got, domain.PermissionModeBypassPermissions)
+	}
+}
+
+func TestInheritedSpawnBaseRefUsesParentHEAD(t *testing.T) {
+	repoDir := t.TempDir()
+	runGit := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repoDir}, args...)...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	runGit("init", "-b", "picart-vnext")
+	runGit("config", "user.email", "ao-test@example.com")
+	runGit("config", "user.name", "AO Test")
+	if err := os.WriteFile(filepath.Join(repoDir, "README.md"), []byte("baseline\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", "README.md")
+	runGit("commit", "-m", "baseline")
+	want := runGit("rev-parse", "HEAD")
+
+	m, st, _, _ := newManager()
+	st.sessions["mer-0"] = domain.SessionRecord{
+		ID: "mer-0", ProjectID: "mer", Kind: domain.KindOrchestrator,
+		Metadata: domain.SessionMetadata{WorkspacePath: repoDir},
+	}
+	got, err := m.inheritedSpawnBaseRef(ctx, "mer", "mer-0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("inherited base ref = %q, want parent HEAD %q", got, want)
+	}
+}
+
 func TestSpawn_IgnoresNonOrchestratorParent(t *testing.T) {
 	m, st, rt, _ := newManager()
 	st.sessions["mer-0"] = domain.SessionRecord{ID: "mer-0", ProjectID: "mer", Kind: domain.KindWorker}
