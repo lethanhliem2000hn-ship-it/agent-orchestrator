@@ -11,7 +11,6 @@ import (
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/config"
 	"github.com/aoagents/agent-orchestrator/backend/internal/daemonmeta"
-	"github.com/aoagents/agent-orchestrator/backend/internal/runfile"
 )
 
 const probeTimeout = 2 * time.Second
@@ -83,12 +82,12 @@ func (c *commandContext) inspectDaemon(ctx context.Context) (daemonStatus, error
 	if err != nil {
 		return daemonStatus{}, err
 	}
-	st := daemonStatus{State: stateStopped, RunFile: cfg.RunFilePath, DataDir: cfg.DataDir}
-
-	info, err := runfile.Read(cfg.RunFilePath)
+	target, err := discoverDaemonTarget(cfg, c.deps.ProcessAlive)
 	if err != nil {
 		return daemonStatus{}, err
 	}
+	st := daemonStatus{State: stateStopped, RunFile: target.RunFile, DataDir: target.DataDir}
+	info := target.Info
 	if info == nil {
 		return st, nil
 	}
@@ -98,12 +97,6 @@ func (c *commandContext) inspectDaemon(ctx context.Context) (daemonStatus, error
 	startedAt := info.StartedAt
 	st.StartedAt = &startedAt
 	st.Uptime = formatUptime(c.deps.Now().Sub(info.StartedAt))
-
-	if !c.deps.ProcessAlive(info.PID) {
-		st.State = stateStale
-		st.Error = "run-file points to a dead process"
-		return st, nil
-	}
 
 	health, err := c.readProbe(ctx, info.Port, "healthz")
 	if err != nil {
