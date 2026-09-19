@@ -293,6 +293,12 @@ let daemonRestartAfterExitProcess: ChildProcess | null = null;
 let daemonStartPromise: Promise<DaemonStatus> | null = null;
 let daemonStartEpoch = 0;
 let daemonStatus: DaemonStatus = { state: "stopped" };
+// Unexpected daemon exits are usually transient in dev (rebuild/reload races,
+// provider host crashes, stale port handoff). Recover automatically, but cap
+// retries so a genuinely broken build does not spin forever.
+let daemonAutoRestartTimer: ReturnType<typeof setTimeout> | null = null;
+let daemonAutoRestartAttempts = 0;
+const DAEMON_AUTO_RESTART_DELAYS_MS = [500, 1500, 4000] as const;
 let daemonOutput = "";
 let browserViewHost: BrowserViewHost | null = null;
 let browserProfileIpc: BrowserProfileIpc | null = null;
@@ -1730,6 +1736,7 @@ async function startDaemonInner(startEpoch: number): Promise<DaemonStatus> {
 		if (portConfirmed || daemonProcess !== child || daemonStoppingProcess === child) return;
 		portConfirmed = true;
 		stopDiscovery();
+		cancelDaemonAutoRestart();
 		setDaemonStatus({ state: "ready", port });
 
 		// Establish the OS-native liveness link on the spawn path (we own this
@@ -1820,6 +1827,7 @@ async function startDaemonInner(startEpoch: number): Promise<DaemonStatus> {
 			details: daemonOutput.trim() || undefined,
 			code: "spawn_failed",
 		});
+		scheduleDaemonAutoRestart(`spawn error: ${error.message}`);
 	});
 
 	child.once("exit", (code, signal) => {
@@ -1841,14 +1849,16 @@ async function startDaemonInner(startEpoch: number): Promise<DaemonStatus> {
 			setDaemonStatus({ state: "stopped" });
 			return;
 		}
+		const exitReason = signal ? `Daemon exited with ${signal}` : `Daemon exited with code ${code ?? "unknown"}`;
 		setDaemonStatus({
 			state: "stopped",
-			message: signal ? `Daemon exited with ${signal}` : `Daemon exited with code ${code ?? "unknown"}`,
+			message: exitReason,
 			details: daemonOutput.trim() || undefined,
 			code: "exited",
 			exitCode: code,
 			signal,
 		});
+		scheduleDaemonAutoRestart(exitReason);
 	});
 
 	return daemonStatus;
@@ -1870,6 +1880,7 @@ function killDaemon(child: ChildProcess): void {
 function stopDaemon(): DaemonStatus {
 	daemonStartEpoch += 1;
 	daemonStartPromise = null;
+	cancelDaemonAutoRestart();
 	// An explicit stop (or a newer restart request) cancels any deferred restart
 	// left waiting for a previously slow child to exit.
 	daemonRestartAfterExitProcess = null;
@@ -1898,6 +1909,38 @@ function reportDaemonRestartFailure(error: unknown): DaemonStatus {
 		code: "spawn_failed",
 	});
 	return daemonStatus;
+}
+
+function cancelDaemonAutoRestart(resetAttempts = true): void {
+	if (daemonAutoRestartTimer) {
+		clearTimeout(daemonAutoRestartTimer);
+		daemonAutoRestartTimer = null;
+	}
+	if (resetAttempts) daemonAutoRestartAttempts = 0;
+}
+
+function scheduleDaemonAutoRestart(reason: string): void {
+	if (browserQuitRequested || isUpdateRestartRequested() || daemonAutoRestartTimer) return;
+	if (daemonAutoRestartAttempts >= DAEMON_AUTO_RESTART_DELAYS_MS.length) {
+		setDaemonStatus({
+			state: "error",
+			message: "AO daemon stopped repeatedly and automatic recovery was paused.",
+			details: [reason, daemonOutput.trim()].filter(Boolean).join("\n\n") || undefined,
+			code: "spawn_failed",
+		});
+		return;
+	}
+	const delay = DAEMON_AUTO_RESTART_DELAYS_MS[daemonAutoRestartAttempts];
+	daemonAutoRestartAttempts += 1;
+	setDaemonStatus({
+		state: "starting",
+		message: `AO daemon disconnected. Recovering automatically (attempt ${daemonAutoRestartAttempts}/${DAEMON_AUTO_RESTART_DELAYS_MS.length})…`,
+		details: reason,
+	});
+	daemonAutoRestartTimer = setTimeout(() => {
+		daemonAutoRestartTimer = null;
+		void startDaemonForRestart();
+	}, delay);
 }
 
 async function startDaemonForRestart(): Promise<DaemonStatus> {
