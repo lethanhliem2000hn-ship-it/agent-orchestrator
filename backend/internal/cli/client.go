@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/config"
-	"github.com/aoagents/agent-orchestrator/backend/internal/runfile"
 )
 
 // commandTimeout bounds a mutating daemon call. Spawns do real work (git
@@ -153,15 +152,13 @@ func (c *commandContext) doJSONPathWithHeadersAndTimeout(
 	if err != nil {
 		return err
 	}
-	info, err := runfile.Read(cfg.RunFilePath)
+	target, err := discoverDaemonTarget(cfg, c.deps.ProcessAlive)
 	if err != nil {
 		return err
 	}
+	info := target.Info
 	if info == nil {
 		return daemonUnavailableError{message: "AO daemon is not running — start it with `ao start`"}
-	}
-	if !c.deps.ProcessAlive(info.PID) {
-		return daemonUnavailableError{message: fmt.Sprintf("AO daemon is not running (stale run-file at %s) — start it with `ao start`", cfg.RunFilePath)}
 	}
 
 	var reader io.Reader = http.NoBody
