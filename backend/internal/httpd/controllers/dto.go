@@ -271,7 +271,12 @@ type SessionView struct {
 	// LastUserMessageAt is the latest real user-authored task direction time.
 	// Lifecycle and internal automation updates do not advance it.
 	LastUserMessageAt *time.Time       `json:"lastUserMessageAt,omitempty"`
-	PRs               []SessionPRFacts `json:"prs"`
+	// LatestAssistantUpdate is the newest user-facing progress message captured
+	// from the agent hook stream. It gives orchestrators a concrete signal of what
+	// a TUI worker is doing without scraping tmux or guessing from Git commits.
+	LatestAssistantUpdate   string     `json:"latestAssistantUpdate,omitempty"`
+	LastAssistantUpdateAt   *time.Time `json:"lastAssistantUpdateAt,omitempty"`
+	PRs                     []SessionPRFacts `json:"prs"`
 	ActiveAgentSwitch *AgentSwitchView `json:"activeAgentSwitch,omitempty"`
 }
 

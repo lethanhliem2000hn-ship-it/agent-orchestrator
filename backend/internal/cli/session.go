@@ -54,9 +54,11 @@ type sessionDTO struct {
 	IsTerminated bool            `json:"isTerminated"`
 	CreatedAt    time.Time       `json:"createdAt"`
 	UpdatedAt    time.Time       `json:"updatedAt"`
-	Status       string          `json:"status"`
-	Branch       string          `json:"branch,omitempty"`
-	PRs          []sessionPRDTO  `json:"prs"`
+	Status                string          `json:"status"`
+	Branch                string          `json:"branch,omitempty"`
+	LatestAssistantUpdate string          `json:"latestAssistantUpdate,omitempty"`
+	LastAssistantUpdateAt *time.Time      `json:"lastAssistantUpdateAt,omitempty"`
+	PRs                   []sessionPRDTO  `json:"prs"`
 }
 
 type sessionActivity struct {
@@ -998,6 +1000,7 @@ func writeSessionDetails(cmd *cobra.Command, sess sessionDTO) error {
 		{"role", sessionRole(sess)},
 		{"status", sess.Status},
 		{"activity", sess.Activity.State},
+		{"latest update", sess.LatestAssistantUpdate},
 		{"harness", sess.Harness},
 		{"issue", sess.IssueID},
 		{"terminated", fmt.Sprintf("%t", sess.IsTerminated)},

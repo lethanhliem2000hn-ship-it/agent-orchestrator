@@ -237,6 +237,67 @@ func (l *generationClaimFailureLauncher) StartChat(ctx context.Context, cfg Chat
 	return ChatStarted{}, l.err
 }
 
+func TestSpawnImplicitOrchestratorDefaultsToTUI(t *testing.T) {
+	launcher := &recordingLauncher{}
+	st := newFakeStore()
+	st.projects["mer"] = domain.ProjectRecord{ID: "mer", Config: testRoleAgents()}
+	rt := &fakeRuntime{}
+	lookPath := func(string) (string, error) { return "/bin/true", nil }
+	m := New(Deps{
+		Runtime:   rt,
+		Agents:    fakeAgents{},
+		Workspace: &fakeWorkspace{},
+		Store:     st,
+		Messenger: &fakeMessenger{},
+		Chat:      launcher,
+		Defaults:  fixedSessionModeDefaults(domain.SessionModeChat),
+		Lifecycle: &fakeLCM{store: st},
+		DataDir:   "/ao-test-data",
+		LookPath:  lookPath,
+	})
+
+	rec, _, _, err := m.Spawn(context.Background(), ports.SpawnConfig{
+		ProjectID: "mer",
+		Kind:      domain.KindOrchestrator,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Mode != domain.SessionModeTUI {
+		t.Fatalf("implicit orchestrator mode = %q, want tui", rec.Mode)
+	}
+	if len(launcher.started) != 0 {
+		t.Fatalf("chat launcher started %d time(s), want 0 for implicit orchestrator", len(launcher.started))
+	}
+	if rt.created != 1 {
+		t.Fatalf("terminal runtime create calls = %d, want 1", rt.created)
+	}
+}
+
+func TestSpawnExplicitChatOrchestratorStillUsesChat(t *testing.T) {
+	launcher := &recordingLauncher{}
+	m, _, rt := newChatManager(launcher)
+	m.defaults = fixedSessionModeDefaults(domain.SessionModeTUI)
+
+	rec, _, _, err := m.Spawn(context.Background(), ports.SpawnConfig{
+		ProjectID:    chatTestProject,
+		Kind:         domain.KindOrchestrator,
+		RequestedMode: domain.SessionModeChat,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Mode != domain.SessionModeChat {
+		t.Fatalf("explicit orchestrator mode = %q, want chat", rec.Mode)
+	}
+	if len(launcher.started) != 1 {
+		t.Fatalf("chat launcher starts = %d, want 1", len(launcher.started))
+	}
+	if rt.created != 0 {
+		t.Fatalf("terminal runtime create calls = %d, want 0 for explicit chat orchestrator", rt.created)
+	}
+}
+
 func TestReconcileLive_ChatReconnectPreservesActivity(t *testing.T) {
 	launcher := &recordingLauncher{liveReconnect: true}
 	m, st, _ := newChatManager(launcher)

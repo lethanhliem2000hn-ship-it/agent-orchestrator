@@ -8395,11 +8395,18 @@ components:
           type: string
         kind:
           type: string
+        lastAssistantUpdateAt:
+          format: date-time
+          type:
+          - "null"
+          - string
         lastUserMessageAt:
           format: date-time
           type:
           - "null"
           - string
+        latestAssistantUpdate:
+          type: string
         mode:
           enum:
           - chat

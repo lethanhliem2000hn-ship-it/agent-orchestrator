@@ -834,6 +834,31 @@ func TestSessionsAPI_AgentSwitchLifecycle(t *testing.T) {
 
 }
 
+func TestSessionsAPIProjectsLatestAssistantProgress(t *testing.T) {
+	svc := newFakeSessionService()
+	now := time.Date(2026, 9, 20, 8, 30, 0, 0, time.UTC)
+	session := svc.sessions["ao-1"]
+	session.Metadata.LatestAssistantUpdate = "Running focused tests in vietai-studio"
+	session.Metadata.LatestAssistantUpdateAt = now
+	svc.sessions["ao-1"] = session
+	srv := newSessionTestServer(t, svc)
+
+	body, status, _ := doRequest(t, srv, http.MethodGet, "/api/v1/sessions/ao-1", "")
+	if status != http.StatusOK {
+		t.Fatalf("get session = %d, want 200; body=%s", status, body)
+	}
+	var response struct {
+		Session controllers.SessionView `json:"session"`
+	}
+	mustJSON(t, body, &response)
+	if response.Session.LatestAssistantUpdate != "Running focused tests in vietai-studio" {
+		t.Fatalf("latest assistant update = %q", response.Session.LatestAssistantUpdate)
+	}
+	if response.Session.LastAssistantUpdateAt == nil || !response.Session.LastAssistantUpdateAt.Equal(now) {
+		t.Fatalf("last assistant update at = %v, want %v", response.Session.LastAssistantUpdateAt, now)
+	}
+}
+
 func TestSessionsAPIActiveSwitchProjectionRedactsPrivateFacts(t *testing.T) {
 	svc := newFakeSessionService()
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)

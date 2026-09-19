@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/config"
-	"github.com/aoagents/agent-orchestrator/backend/internal/runfile"
 )
 
 // commandTimeout bounds a mutating daemon call. Spawns do real work (git
@@ -88,10 +87,41 @@ func (e apiError) String() string {
 }
 
 // getJSON sends GET /api/v1/<path> to the running daemon and decodes a 2xx
-// response into out. A missing daemon or non-2xx API envelope is rendered the
-// same way as mutating calls.
+// response into out. GET is idempotent, so one transient daemon disconnect is
+// retried after a short delay. This is particularly useful while the desktop
+// dev supervisor is replacing/restarting its daemon: the run-file may move to a
+// fresh PID/port between the two attempts and doJSON rediscovery will follow it.
+// Mutating calls deliberately keep their existing no-retry behavior.
 func (c *commandContext) getJSON(ctx context.Context, path string, out any) error {
-	return c.doJSON(ctx, http.MethodGet, path, nil, out)
+	const retryDelay = 150 * time.Millisecond
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			if err := sleepCLIContext(ctx, retryDelay); err != nil {
+				return err
+			}
+		}
+		if err := c.doJSON(ctx, http.MethodGet, path, nil, out); err != nil {
+			lastErr = err
+			if !errors.Is(err, errDaemonUnavailable) {
+				return err
+			}
+			continue
+		}
+		return nil
+	}
+	return lastErr
+}
+
+func sleepCLIContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // postJSON sends body as JSON to POST /api/v1/<path> on the running daemon and
@@ -153,15 +183,13 @@ func (c *commandContext) doJSONPathWithHeadersAndTimeout(
 	if err != nil {
 		return err
 	}
-	info, err := runfile.Read(cfg.RunFilePath)
+	target, err := discoverDaemonTarget(cfg, c.deps.ProcessAlive)
 	if err != nil {
 		return err
 	}
+	info := target.Info
 	if info == nil {
 		return daemonUnavailableError{message: "AO daemon is not running — start it with `ao start`"}
-	}
-	if !c.deps.ProcessAlive(info.PID) {
-		return daemonUnavailableError{message: fmt.Sprintf("AO daemon is not running (stale run-file at %s) — start it with `ao start`", cfg.RunFilePath)}
 	}
 
 	var reader io.Reader = http.NoBody

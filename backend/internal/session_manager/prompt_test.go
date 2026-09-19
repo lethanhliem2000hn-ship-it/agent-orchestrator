@@ -96,6 +96,11 @@ func TestBuildSystemPrompt_OrchestratorRequiresConfirmationAndAOOnlyDelegation(t
 		"Add `--model <id>` when the human or task explicitly requests a specific model",
 		"Never drop an explicitly requested `--model` or substitute another model automatically",
 		"ask the human to choose an alternative",
+		"No commit or diff by itself is NOT evidence that a worker is stalled",
+		"Do not terminate or respawn a live worker merely because it has not committed within an arbitrary time window",
+		"For TUI workers use ordinary",
+		"retry the read-only status check once",
+		"Report pending work as pending",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("orchestrator prompt missing %q:\n%s", want, got)

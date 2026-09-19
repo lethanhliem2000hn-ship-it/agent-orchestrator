@@ -842,12 +842,19 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 	if projectKind == domain.ProjectKindScratch && strings.TrimSpace(cfg.Branch) != "" {
 		return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn: %w", ErrScratchBranchUnsupported)
 	}
-	if cfg.ParentSessionID != "" && cfg.AgentConfig.Permissions == "" {
-		permissions, err := m.inheritedSpawnPermissions(ctx, cfg.ProjectID, cfg.ParentSessionID)
+	parentBaseRef := ""
+	if cfg.ParentSessionID != "" {
+		if cfg.AgentConfig.Permissions == "" {
+			permissions, err := m.inheritedSpawnPermissions(ctx, cfg.ProjectID, cfg.ParentSessionID)
+			if err != nil {
+				return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn: %w", err)
+			}
+			cfg.AgentConfig.Permissions = permissions
+		}
+		parentBaseRef, err = m.inheritedSpawnBaseRef(ctx, cfg.ProjectID, cfg.ParentSessionID)
 		if err != nil {
 			return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn: %w", err)
 		}
-		cfg.AgentConfig.Permissions = permissions
 	}
 	// A per-project role override picks the harness when the spawn names none,
 	// so a project can default workers to one agent and orchestrators to another.
@@ -887,6 +894,16 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 	// if it is unavailable for this harness or installation, fall back to TUI.
 	modeExplicitlyRequested := cfg.RequestedMode.Valid()
 	mode := m.resolveSessionMode(ctx, cfg.RequestedMode)
+	// Orchestrators need a durable local terminal so they can reliably call the
+	// ao CLI, inspect worker worktrees, and recover from provider-side Chat
+	// transport/tool-server failures. Keep explicit user choices intact, but
+	// default implicit orchestrator spawns to TUI even when the global preference
+	// is Chat. Worker sessions continue to follow the ordinary daemon default.
+	if !modeExplicitlyRequested && cfg.Kind == domain.KindOrchestrator && mode == domain.SessionModeChat {
+		m.logger.Info("spawn: implicit orchestrator mode forced to TUI for reliable delegation",
+			"harness", cfg.Harness)
+		mode = domain.SessionModeTUI
+	}
 	if mode == domain.SessionModeChat {
 		if m.chat == nil {
 			if modeExplicitlyRequested {
@@ -951,6 +968,12 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		branch = DefaultSpawnBranch(id, cfg.Kind, sessionPrefix(project), projectKind, m.dataDir)
 	}
 	baseRefs := m.refreshDefaultBranchesBestEffort(ctx, project)
+	if parentBaseRef != "" && strings.TrimSpace(project.Path) != "" {
+		if baseRefs == nil {
+			baseRefs = make(map[string]string)
+		}
+		baseRefs[filepath.Clean(project.Path)] = parentBaseRef
+	}
 	ws, workspaceProject, err := m.createSessionWorkspace(ctx, project, cfg, id, branch, baseRefs)
 	if err != nil {
 		// Nothing observable exists yet — no worktree, no runtime — so the seed
@@ -1210,18 +1233,52 @@ func (m *Manager) inheritedSpawnPermissions(ctx context.Context, projectID domai
 		// project-default spawn behavior rather than gain an inherited policy.
 		return "", nil
 	}
+	// TUI orchestrators do not have a structured conversation row. Their launch
+	// metadata is still authoritative for the resolved permission policy, so keep
+	// it as the fallback instead of silently dropping back to the project default.
+	fallback := parent.Metadata.Permissions
 	conversations, ok := m.store.(conversationSettingsStore)
 	if !ok {
-		return "", nil
+		return fallback, nil
 	}
 	conversation, err := conversations.ConversationForSession(ctx, parentID)
 	if errors.Is(err, domain.ErrNoConversation) {
-		return "", nil
+		return fallback, nil
 	}
 	if err != nil {
 		return "", fmt.Errorf("load parent conversation %s: %w", parentID, err)
 	}
-	return conversation.Settings.ApprovalMode, nil
+	if conversation.Settings.ApprovalMode != "" {
+		return conversation.Settings.ApprovalMode, nil
+	}
+	return fallback, nil
+}
+
+// inheritedSpawnBaseRef keeps delegated workers on the orchestrator's committed
+// code baseline. Without this, a project whose configured default branch is
+// main can spawn workers from main even when the orchestrator is intentionally
+// operating on a feature branch such as picart-vnext.
+func (m *Manager) inheritedSpawnBaseRef(ctx context.Context, projectID domain.ProjectID, parentID domain.SessionID) (string, error) {
+	parent, ok, err := m.store.GetSession(ctx, parentID)
+	if err != nil {
+		return "", fmt.Errorf("load parent session %s: %w", parentID, err)
+	}
+	if !ok || parent.ProjectID != projectID || parent.Kind != domain.KindOrchestrator {
+		return "", nil
+	}
+	root := strings.TrimSpace(parent.Metadata.WorkspaceRepoPath)
+	if root == "" {
+		root = strings.TrimSpace(parent.Metadata.WorkspacePath)
+	}
+	if root == "" {
+		return "", nil
+	}
+	if sha, ok := spawnGitSingleLine(ctx, root, "rev-parse", "HEAD"); ok {
+		return sha, nil
+	}
+	// A missing or temporarily unreadable parent worktree should not make
+	// delegation impossible. Fall back to the project's configured base branch.
+	return "", nil
 }
 
 // loadProject loads the project record so spawn can resolve its per-project
