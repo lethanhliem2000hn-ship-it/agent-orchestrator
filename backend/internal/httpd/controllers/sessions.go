@@ -2004,6 +2004,14 @@ func sessionView(s domain.Session) SessionView {
 			at := s.Metadata.LatestUserPromptAt
 			return &at
 		}(),
+		LatestAssistantUpdate: s.Metadata.LatestAssistantUpdate,
+		LastAssistantUpdateAt: func() *time.Time {
+			if s.Metadata.LatestAssistantUpdateAt.IsZero() {
+				return nil
+			}
+			at := s.Metadata.LatestAssistantUpdateAt
+			return &at
+		}(),
 		PRs: sessionPRFacts(s.PRs),
 	}
 	if s.ActiveAgentSwitch != nil {
